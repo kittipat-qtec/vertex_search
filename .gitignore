@@ -44,6 +44,10 @@ service-account*.json
 tmp/
 temp/
 .cache/
+implementation_plan.md
+
+# Internal source documents kept outside Git
+docs/*.pdf
 
 # Editor / OS files
 .DS_Store
