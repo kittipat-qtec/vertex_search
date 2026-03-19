@@ -10,6 +10,7 @@ export interface AuthUser {
 export interface AskRequest {
   question: string;
   department?: string;
+  history?: Array<{ role: "user" | "assistant"; text: string }>;
 }
 
 export interface DebugSearchRequest {

@@ -41,15 +41,27 @@ export default function Sidebar({
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [pendingDeleteSession, setPendingDeleteSession] =
     useState<ChatSession | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
 
   const visibleSessions = useMemo(
-    () =>
-      sessions.filter(
+    () => {
+      const base = sessions.filter(
         (session) => session.messages.length > 0 || session.id === activeSessionId,
-      ),
-    [activeSessionId, sessions],
+      );
+
+      if (!searchQuery.trim()) {
+        return base;
+      }
+
+      const q = searchQuery.toLowerCase().trim();
+      return base.filter((session) =>
+        session.title.toLowerCase().includes(q) ||
+        session.messages.some((m) => m.text.toLowerCase().includes(q)),
+      );
+    },
+    [activeSessionId, searchQuery, sessions],
   );
 
   const closeSidebar = useCallback(() => {
@@ -162,6 +174,31 @@ export default function Sidebar({
         </div>
 
         <div className="sidebar__content">
+          <div className="sidebar__search">
+            <svg aria-hidden="true" className="sidebar__search-icon" fill="none" height="14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="14">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" x2="16.65" y1="21" y2="16.65" />
+            </svg>
+            <input
+              aria-label="ค้นหาประวัติแชท"
+              className="sidebar__search-input"
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="ค้นหาแชท..."
+              type="text"
+              value={searchQuery}
+            />
+            {searchQuery && (
+              <button
+                aria-label="ล้างการค้นหา"
+                className="sidebar__search-clear"
+                onClick={() => setSearchQuery("")}
+                type="button"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
           <h2 className="sidebar__label" id="chat-history-heading">
             ประวัติการสนทนา
           </h2>

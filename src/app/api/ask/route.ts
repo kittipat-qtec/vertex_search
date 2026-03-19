@@ -4,7 +4,10 @@ import { getRequestUser } from "@/lib/auth";
 import { getAssistantProfileResponse } from "@/lib/assistant-profile";
 import { appConfig } from "@/lib/config";
 import { askVertexGroundedQuestion } from "@/lib/genai";
+import { logger } from "@/lib/logger";
 import { getMockAnswer } from "@/lib/mock/mockService";
+import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit";
+import { sanitizeQuestion } from "@/lib/sanitize";
 import type { AskRequest } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -25,6 +28,32 @@ export async function POST(request: Request) {
     );
   }
 
+  // Rate limiting
+  const rateLimitId = getRateLimitIdentifier(request);
+  const rateLimit = checkRateLimit(rateLimitId);
+
+  if (!rateLimit.allowed) {
+    logger.warn("Rate limit exceeded", {
+      requestId,
+      userId: user.username,
+      retryAfterMs: rateLimit.retryAfterMs,
+    });
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `คุณส่งคำถามเร็วเกินไป กรุณารอ ${Math.ceil((rateLimit.retryAfterMs ?? 0) / 1000)} วินาที`,
+        requestId,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil((rateLimit.retryAfterMs ?? 0) / 1000)),
+        },
+      },
+    );
+  }
+
   let payload: AskRequest;
 
   try {
@@ -40,12 +69,31 @@ export async function POST(request: Request) {
     );
   }
 
-  const question = payload.question?.trim();
-  if (!question) {
+  const rawQuestion = payload.question?.trim();
+  if (!rawQuestion) {
     return NextResponse.json(
       {
         ok: false,
         error: "กรุณาระบุคำถามก่อนส่ง",
+        requestId,
+      },
+      { status: 400 },
+    );
+  }
+
+  const { clean: question, flagged, reason } = sanitizeQuestion(rawQuestion);
+
+  if (flagged) {
+    logger.warn("Flagged input detected", {
+      requestId,
+      userId: user.username,
+      reason,
+    });
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: reason,
         requestId,
       },
       { status: 400 },
@@ -63,6 +111,24 @@ export async function POST(request: Request) {
       return NextResponse.json(assistantProfileResponse);
     }
 
+    // Sanitize history — keep last 10 turns max
+    const history = (payload.history ?? [])
+      .filter(
+        (h) =>
+          (h.role === "user" || h.role === "assistant") &&
+          typeof h.text === "string" &&
+          h.text.trim().length > 0,
+      )
+      .slice(-10);
+
+    logger.info("Processing question", {
+      requestId,
+      userId: user.username,
+      questionLength: question.length,
+      historyTurns: history.length,
+      mockMode: appConfig.mockMode,
+    });
+
     if (appConfig.mockMode) {
       const mockResponse = await getMockAnswer(question, requestId);
       return NextResponse.json(mockResponse);
@@ -73,11 +139,24 @@ export async function POST(request: Request) {
       user,
       requestId,
       payload.department,
+      history,
     );
+
+    logger.info("Question answered", {
+      requestId,
+      userId: user.username,
+      latencyMs: response.latencyMs,
+      grounded: response.grounded,
+      sourcesCount: response.sources.length,
+    });
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error(`[api/ask][${requestId}]`, error);
+    logger.error("Failed to answer question", error, {
+      requestId,
+      userId: user.username,
+      question: question.slice(0, 100),
+    });
 
     return NextResponse.json(
       {

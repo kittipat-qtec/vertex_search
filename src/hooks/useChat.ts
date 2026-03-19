@@ -155,6 +155,15 @@ export const useChat = (options?: {
     setIsSubmitting(true);
 
     try {
+      // Build history from current messages (exclude pending/error)
+      const currentMessages = messages.filter(
+        (m) => !m.pending && !m.error && m.text.trim().length > 0,
+      );
+      const history = currentMessages.slice(-10).map((m) => ({
+        role: m.role,
+        text: m.text,
+      }));
+
       const response = await fetch("/api/ask", {
         method: "POST",
         headers: {
@@ -162,6 +171,7 @@ export const useChat = (options?: {
         },
         body: JSON.stringify({
           question: trimmedQuestion,
+          history,
         }),
         signal: abortController.signal,
       });

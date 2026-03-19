@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue } from "react";
+import { useCallback, useEffect, useDeferredValue, useRef } from "react";
 
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { QuestionInput } from "@/components/chat/QuestionInput";
@@ -22,6 +22,24 @@ function getInitials(displayName: string) {
   }
 
   return parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
+}
+
+function exportMessages(messages: ChatMessage[]) {
+  const lines = messages
+    .filter((m) => !m.pending)
+    .map((m) => {
+      const label = m.role === "user" ? "คุณ" : "Knowledge Brain";
+      return `[${label}]\n${m.text}\n`;
+    });
+
+  const text = `QTEC Knowledge Brain — ส่งออกเมื่อ ${new Date().toLocaleString("th-TH")}\n${"─".repeat(50)}\n\n${lines.join("\n")}`;
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `qtec-chat-${new Date().toISOString().slice(0, 10)}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function ChatInterface({
@@ -47,6 +65,36 @@ export function ChatInterface({
     sessionId,
   });
   const deferredMessages = useDeferredValue(messages);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    userScrolledUpRef.current = !atBottom;
+  }, []);
+
+  useEffect(() => {
+    if (userScrolledUpRef.current) return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+  }, [deferredMessages, isSubmitting]);
+
+  useEffect(() => {
+    userScrolledUpRef.current = false;
+    const el = scrollerRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+  }, [sessionId]);
+
+  const handleExport = useCallback(() => {
+    if (deferredMessages.length > 0) {
+      exportMessages(deferredMessages);
+    }
+  }, [deferredMessages]);
+
   const composerSuggestions =
     deferredMessages.length === 0 ? starterSuggestions : EMPTY_SUGGESTIONS;
   const initials = user ? getInitials(user.displayName) : "QT";
@@ -65,6 +113,21 @@ export function ChatInterface({
           <span aria-live="polite" className="chat-toolbar__status" role="status">
             {statusMessage}
           </span>
+          {deferredMessages.length > 0 && (
+            <button
+              aria-label="ส่งออกประวัติแชท"
+              className="chat-toolbar__export-btn"
+              onClick={handleExport}
+              type="button"
+            >
+              <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="16">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" x2="12" y1="15" y2="3" />
+              </svg>
+              ส่งออก
+            </button>
+          )}
         </div>
       </div>
 
@@ -72,6 +135,8 @@ export function ChatInterface({
         aria-live="polite"
         aria-relevant="additions text"
         className="message-scroller"
+        onScroll={handleScroll}
+        ref={scrollerRef}
         role="log"
       >
         <div className="chat-constraint message-list-inner">

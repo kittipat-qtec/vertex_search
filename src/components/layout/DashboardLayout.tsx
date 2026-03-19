@@ -105,11 +105,7 @@ export function DashboardLayout({
       return;
     }
 
-    if (sessions.length > 0) {
-      pendingSessionIdRef.current = sessions[0].id;
-      setActiveSessionId(sessions[0].id);
-      return;
-    }
+    // Always start a new chat when visiting without ?session= (ChatGPT-style)
 
     const newSession = createSession();
     pendingSessionIdRef.current = newSession.id;

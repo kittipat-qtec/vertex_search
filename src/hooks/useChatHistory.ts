@@ -16,6 +16,7 @@ interface PersistedChatHistory {
 }
 
 const DEFAULT_SESSION_TITLE = "การสนทนาใหม่";
+const MAX_SESSIONS = 50;
 const MAX_TITLE_LENGTH = 40;
 const STORAGE_KEY = "qtec_chat_history";
 const STORAGE_VERSION = 1;
@@ -41,6 +42,17 @@ const sortSessions = (sessions: ChatSession[]) =>
 
     return right.updatedAt - left.updatedAt;
   });
+
+const trimSessions = (sessions: ChatSession[]) => {
+  if (sessions.length <= MAX_SESSIONS) {
+    return sessions;
+  }
+
+  const pinned = sessions.filter((s) => s.isPinned);
+  const unpinned = sessions.filter((s) => !s.isPinned);
+
+  return [...pinned, ...unpinned.slice(0, MAX_SESSIONS - pinned.length)];
+};
 
 const normalizeTitle = (title: string) => {
   const trimmedTitle = title.trim();
@@ -146,11 +158,15 @@ export function useChatHistory() {
 
     const timeoutId = window.setTimeout(() => {
       const payload: PersistedChatHistory = {
-        sessions,
+        sessions: trimSessions(sessions),
         version: STORAGE_VERSION,
       };
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      } catch (error) {
+        console.warn("[ChatHistory] localStorage save failed (possibly full).", error);
+      }
     }, 0);
 
     return () => {

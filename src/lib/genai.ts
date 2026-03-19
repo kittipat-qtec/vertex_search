@@ -1,5 +1,6 @@
 import {
   GoogleGenAI,
+  type Content,
   type GenerateContentResponse,
   type GroundingChunk,
 } from "@google/genai";
@@ -14,6 +15,8 @@ import { getMockAnswer } from "@/lib/mock/mockService";
 import { mockKnowledgeBase } from "@/lib/mock/mockData";
 import { buildQuestionPrompt, RAG_SYSTEM_INSTRUCTION } from "@/lib/prompts";
 import type { AskResponse, AuthUser, Source } from "@/lib/types";
+
+type HistoryTurn = { role: "user" | "assistant"; text: string };
 
 let client: GoogleGenAI | null = null;
 
@@ -114,25 +117,48 @@ export const getGenAIClient = () => {
   return client;
 };
 
+const buildMultiTurnContents = (
+  history: HistoryTurn[],
+  currentPrompt: string,
+): Content[] => {
+  const contents: Content[] = history.map((turn) => ({
+    role: turn.role === "assistant" ? "model" : "user",
+    parts: [{ text: turn.text }],
+  }));
+
+  contents.push({
+    role: "user",
+    parts: [{ text: currentPrompt }],
+  });
+
+  return contents;
+};
+
 export const askVertexGroundedQuestion = async (
   question: string,
   user: AuthUser,
   requestId: string,
   department?: string,
+  history: HistoryTurn[] = [],
 ): Promise<AskResponse> => {
   if (!hasVertexSearchConfig()) {
     if (!hasVertexAiConfig()) {
       return getMockAnswer(question, requestId);
     }
 
-    return askGeminiWithMockContext(question, user, requestId, department);
+    return askGeminiWithMockContext(question, user, requestId, department, history);
   }
 
   const datastore = getDataStoreResourceName();
   const startedAt = Date.now();
+  const prompt = buildQuestionPrompt(question, user, department);
+  const contents = history.length > 0
+    ? buildMultiTurnContents(history, prompt)
+    : prompt;
+
   const response = await getGenAIClient().models.generateContent({
     model: appConfig.modelName,
-    contents: buildQuestionPrompt(question, user, department),
+    contents,
     config: {
       systemInstruction: RAG_SYSTEM_INSTRUCTION,
       temperature: 0.2,
@@ -172,6 +198,7 @@ const askGeminiWithMockContext = async (
   user: AuthUser,
   requestId: string,
   department?: string,
+  history: HistoryTurn[] = [],
 ): Promise<AskResponse> => {
   const startedAt = Date.now();
   const promptWithContext = `
@@ -187,9 +214,13 @@ ${MOCK_CONTEXT}
 ไม่จำเป็นต้องใส่ <source> tags หรือบอกแหล่งที่มาในข้อความ เพราะระบบจะแสดง UI แยกต่างหาก
 `;
 
+  const contents = history.length > 0
+    ? buildMultiTurnContents(history, promptWithContext)
+    : promptWithContext;
+
   const response = await getGenAIClient().models.generateContent({
     model: appConfig.modelName,
-    contents: promptWithContext,
+    contents,
     config: {
       temperature: 0.2,
       maxOutputTokens: 2048,
