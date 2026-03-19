@@ -1,7 +1,10 @@
 import {
   GoogleGenAI,
+  HarmBlockThreshold,
+  HarmCategory,
   type Content,
   type GenerateContentResponse,
+  type GenerationConfig,
   type GroundingChunk,
 } from "@google/genai";
 
@@ -17,6 +20,18 @@ import { buildQuestionPrompt, RAG_SYSTEM_INSTRUCTION } from "@/lib/prompts";
 import type { AskResponse, AuthUser, Source } from "@/lib/types";
 
 type HistoryTurn = { role: "user" | "assistant"; text: string };
+
+const SAFETY_SETTINGS = [
+  { category: HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+];
+
+const BASE_CONFIG: Partial<GenerationConfig> = {
+  temperature: 0.2,
+  maxOutputTokens: 2048,
+};
 
 let client: GoogleGenAI | null = null;
 
@@ -163,6 +178,7 @@ export const askVertexGroundedQuestion = async (
       systemInstruction: RAG_SYSTEM_INSTRUCTION,
       temperature: 0.2,
       maxOutputTokens: 1024,
+      safetySettings: SAFETY_SETTINGS,
       tools: [
         {
           retrieval: {
@@ -190,6 +206,7 @@ export const askVertexGroundedQuestion = async (
     ok: true,
     requestId,
     sources: extractSources(response),
+    suggestedQuestions: await generateSuggestedQuestions(question, answer),
   };
 };
 
@@ -221,10 +238,7 @@ ${MOCK_CONTEXT}
   const response = await getGenAIClient().models.generateContent({
     model: appConfig.modelName,
     contents,
-    config: {
-      temperature: 0.2,
-      maxOutputTokens: 2048,
-    },
+    config: { ...BASE_CONFIG, safetySettings: SAFETY_SETTINGS },
   });
 
   const answer = response.text?.trim();
@@ -241,5 +255,35 @@ ${MOCK_CONTEXT}
     ok: true,
     requestId,
     sources: extractMockSources(question),
+    suggestedQuestions: await generateSuggestedQuestions(question, answer),
   };
+};
+
+/** Generate 3 short follow-up questions the user might ask next. */
+const generateSuggestedQuestions = async (
+  question: string,
+  answer: string,
+): Promise<string[]> => {
+  try {
+    const prompt = `คำถามเดิม: "${question}"
+คำตอบที่ได้: "${answer.slice(0, 400)}"
+
+ช่วยเขียน 3 คำถามสั้นๆ (ภาษาไทย, ไม่เกินประโยคละ 15 คำ) ที่ผู้ใช้น่าจะถามต่อจากนี้
+ส่งผลลัพธ์เป็น JSON array เช่น ["คำถาม 1", "คำถาม 2", "คำถาม 3"]
+ส่งแค่ JSON เท่านั้น ไม่มีข้อความอื่น`;
+
+    const res = await getGenAIClient().models.generateContent({
+      model: appConfig.modelName,
+      contents: prompt,
+      config: { temperature: 0.7, maxOutputTokens: 200 },
+    });
+
+    const raw = res.text?.trim() ?? "";
+    const json = raw.match(/\[.*\]/s)?.[0];
+    if (!json) return [];
+    const parsed = JSON.parse(json) as unknown[];
+    return parsed.filter((q): q is string => typeof q === "string").slice(0, 3);
+  } catch {
+    return [];
+  }
 };

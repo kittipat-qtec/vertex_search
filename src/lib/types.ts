@@ -33,6 +33,7 @@ export interface AskResponse {
   requestId: string;
   latencyMs: number;
   mock?: boolean;
+  suggestedQuestions?: string[];
 }
 
 export interface DebugSearchResponse {
@@ -62,4 +63,5 @@ export interface ChatMessage {
   pending?: boolean;
   error?: boolean;
   latencyMs?: number;
+  suggestedQuestions?: string[];
 }

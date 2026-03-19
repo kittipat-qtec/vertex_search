@@ -38,7 +38,6 @@ function FeedbackButtons({ messageId }: { messageId: string }) {
   const handleFeedback = useCallback(
     (value: "up" | "down") => {
       setFeedback((current) => (current === value ? null : value));
-      // Future: send feedback to server
       console.log(`[Feedback] messageId=${messageId} feedback=${value}`);
     },
     [messageId],
@@ -74,7 +73,52 @@ function FeedbackButtons({ messageId }: { messageId: string }) {
   );
 }
 
-function MessageBubbleComponent({ message }: { message: ChatMessage }) {
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard not available
+    }
+  }, [text]);
+
+  return (
+    <button
+      aria-label="คัดลอกคำตอบ"
+      className={`icon-btn${copied ? " icon-btn--copied" : ""}`}
+      onClick={handleCopy}
+      title={copied ? "คัดลอกแล้ว ✓" : "คัดลอก"}
+      type="button"
+    >
+      {copied ? (
+        <svg aria-hidden="true" fill="none" height="14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="14">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      ) : (
+        <svg aria-hidden="true" fill="none" height="14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="14">
+          <rect height="13" rx="2" ry="2" width="13" x="9" y="9" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+function MessageBubbleComponent({
+  message,
+  onRegenerate,
+  onSuggestedQuestion,
+  isLast,
+}: {
+  message: ChatMessage;
+  onRegenerate?: () => void;
+  onSuggestedQuestion?: (q: string) => void;
+  isLast?: boolean;
+}) {
   const isAssistant = message.role === "assistant";
 
   if (message.pending) {
@@ -118,16 +162,51 @@ function MessageBubbleComponent({ message }: { message: ChatMessage }) {
         ) : null}
 
         <div className="message-bubble__footer">
-          {isAssistant && message.latencyMs ? (
-            <div className="message-bubble__meta">
-              ตอบกลับใน {message.latencyMs} ms
-            </div>
-          ) : null}
+          <div className="message-bubble__footer-left">
+            {isAssistant && message.latencyMs ? (
+              <div className="message-bubble__meta">
+                ตอบกลับใน {message.latencyMs} ms
+              </div>
+            ) : null}
+          </div>
 
           {isAssistant && !message.error ? (
-            <FeedbackButtons messageId={message.id} />
+            <div className="message-bubble__footer-right">
+              <CopyButton text={message.text} />
+              {isLast && onRegenerate ? (
+                <button
+                  aria-label="สร้างคำตอบใหม่"
+                  className="icon-btn"
+                  onClick={onRegenerate}
+                  title="สร้างคำตอบใหม่"
+                  type="button"
+                >
+                  <svg aria-hidden="true" fill="none" height="14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="14">
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 .49-3.78" />
+                  </svg>
+                </button>
+              ) : null}
+              <FeedbackButtons messageId={message.id} />
+            </div>
           ) : null}
         </div>
+
+        {/* Suggested follow-up questions */}
+        {isAssistant && !message.error && message.suggestedQuestions?.length ? (
+          <div className="suggestion-chips">
+            {message.suggestedQuestions.map((q) => (
+              <button
+                key={q}
+                className="suggestion-chip"
+                onClick={() => onSuggestedQuestion?.(q)}
+                type="button"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </article>
   );

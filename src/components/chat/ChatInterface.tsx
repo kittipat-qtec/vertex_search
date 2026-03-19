@@ -166,8 +166,30 @@ export function ChatInterface({
               </p>
             </div>
           ) : (
-            deferredMessages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+            deferredMessages.map((message, index) => (
+              <MessageBubble
+                key={message.id}
+                isLast={index === deferredMessages.length - 1}
+                message={message}
+                onRegenerate={
+                  message.role === "assistant" && !isSubmitting
+                    ? () => {
+                        // Find the last user question and re-submit it
+                        for (let i = index - 1; i >= 0; i--) {
+                          if (deferredMessages[i].role === "user") {
+                            void submitQuestion(deferredMessages[i].text);
+                            break;
+                          }
+                        }
+                      }
+                    : undefined
+                }
+                onSuggestedQuestion={
+                  !isSubmitting
+                    ? (q: string) => void submitQuestion(q)
+                    : undefined
+                }
+              />
             ))
           )}
         </div>

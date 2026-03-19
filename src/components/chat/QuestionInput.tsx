@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import type { SubmitQuestionResult } from "@/hooks/useChat";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySpeechRecognition = any;
 
 interface QuestionInputProps {
   isLoading: boolean;
@@ -85,6 +88,45 @@ export function QuestionInput({
     pendingDraftRef.current = null;
   };
 
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef<AnySpeechRecognition>(null);
+
+  const startVoiceInput = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const win = window as any;
+    const SR = win.SpeechRecognition ?? win.webkitSpeechRecognition;
+    if (!SR) return;
+
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const recognition: any = new SR();
+    recognition.lang = "th-TH";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognitionRef.current = recognition;
+
+    recognition.onresult = (event: { results: { [index: number]: { [index: number]: { transcript: string } } } }) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? "";
+      if (transcript) setQuestion((prev) => prev + transcript);
+    };
+
+    recognition.onend = () => setIsRecording(false);
+    recognition.onerror = () => setIsRecording(false);
+
+    recognition.start();
+    setIsRecording(true);
+  }, [isRecording]);
+
+  const hasSpeechAPI =
+    typeof window !== "undefined" &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    !!((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition);
+
   const canSubmit = !isLoading && question.trim().length > 0;
 
   return (
@@ -144,6 +186,23 @@ export function QuestionInput({
             value={question}
           />
           <div className="composer__actions-inline">
+              {hasSpeechAPI && (
+                <button
+                  aria-label={isRecording ? "หยุดบันทึกเสียง" : "บันทึกเสียง"}
+                  aria-pressed={isRecording}
+                  className={`composer__voice-btn${isRecording ? " composer__voice-btn--active" : ""}`}
+                  disabled={isLoading}
+                  onClick={startVoiceInput}
+                  type="button"
+                >
+                  <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="18">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="23" />
+                    <line x1="8" x2="16" y1="23" y2="23" />
+                  </svg>
+                </button>
+              )}
             <button
               aria-label="ส่งคำถาม"
               className="composer__send-btn"

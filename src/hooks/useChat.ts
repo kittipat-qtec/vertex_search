@@ -194,6 +194,7 @@ export const useChat = (options?: {
                   text: payload.answer,
                   sources: payload.sources,
                   latencyMs: payload.latencyMs,
+                  suggestedQuestions: payload.suggestedQuestions,
                 }
               : message,
           ),
