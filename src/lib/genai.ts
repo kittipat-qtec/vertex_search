@@ -46,7 +46,7 @@ const chunkToSource = (chunk: GroundingChunk): Source | null => {
       uri: chunk.retrievedContext.uri,
       snippet:
         chunk.retrievedContext.text?.trim() ||
-        "ระบบส่งคืนแหล่งอ้างอิงแต่ไม่มีข้อความตัวอย่าง",
+        "ระบบส่งคืนแหล่งอ้างอิง แต่ไม่มีข้อความตัวอย่างจากเอกสาร",
       documentName: chunk.retrievedContext.documentName,
     };
   }
@@ -100,30 +100,6 @@ const extractMockSources = (question: string) => {
   return matchedSources;
 };
 
-const parseSuggestedFollowUps = (rawSuggestions: string) =>
-  rawSuggestions
-    .split("\n")
-    .map((suggestion) => suggestion.replace(/^[-•*\d.]+\s*/, "").trim())
-    .filter((suggestion) => suggestion.length > 5)
-    .slice(0, 3);
-
-const generateSuggestedFollowUps = async (question: string) => {
-  try {
-    const response = await getGenAIClient().models.generateContent({
-      model: appConfig.modelName,
-      contents: `จากคำถาม: "${question}" กรุณาแนะนำ 3 คำถามต่อเนื่องที่เกี่ยวข้องกันแบบสั้น กระชับ และใช้งานได้จริง ตอบเป็นคนละบรรทัดโดยไม่ต้องใส่หมายเลข`,
-      config: {
-        temperature: 0.4,
-        maxOutputTokens: 256,
-      },
-    });
-
-    return parseSuggestedFollowUps(response.text?.trim() ?? "");
-  } catch {
-    return [];
-  }
-};
-
 export const getGenAIClient = () => {
   if (client) {
     return client;
@@ -154,7 +130,7 @@ export const askVertexGroundedQuestion = async (
 
   const datastore = getDataStoreResourceName();
   const startedAt = Date.now();
-  const answerPromise = getGenAIClient().models.generateContent({
+  const response = await getGenAIClient().models.generateContent({
     model: appConfig.modelName,
     contents: buildQuestionPrompt(question, user, department),
     config: {
@@ -173,12 +149,6 @@ export const askVertexGroundedQuestion = async (
       ],
     },
   });
-  const followUpPromise = generateSuggestedFollowUps(question);
-
-  const [response, suggestedFollowUps] = await Promise.all([
-    answerPromise,
-    followUpPromise,
-  ]);
 
   const answer = response.text?.trim();
 
@@ -194,7 +164,6 @@ export const askVertexGroundedQuestion = async (
     ok: true,
     requestId,
     sources: extractSources(response),
-    suggestedFollowUps,
   };
 };
 
@@ -205,7 +174,6 @@ const askGeminiWithMockContext = async (
   department?: string,
 ): Promise<AskResponse> => {
   const startedAt = Date.now();
-  const followUpPromise = generateSuggestedFollowUps(question);
   const promptWithContext = `
 คุณเป็นผู้ช่วย AI ขององค์กร QTEC ตอบคำถามให้กับพนักงานชื่อ ${user.displayName}
 ${department?.trim() ? `แผนกที่เกี่ยวข้อง: ${department.trim()}` : ""}
@@ -219,7 +187,7 @@ ${MOCK_CONTEXT}
 ไม่จำเป็นต้องใส่ <source> tags หรือบอกแหล่งที่มาในข้อความ เพราะระบบจะแสดง UI แยกต่างหาก
 `;
 
-  const answerPromise = getGenAIClient().models.generateContent({
+  const response = await getGenAIClient().models.generateContent({
     model: appConfig.modelName,
     contents: promptWithContext,
     config: {
@@ -228,10 +196,6 @@ ${MOCK_CONTEXT}
     },
   });
 
-  const [response, suggestedFollowUps] = await Promise.all([
-    answerPromise,
-    followUpPromise,
-  ]);
   const answer = response.text?.trim();
 
   if (!answer) {
@@ -246,6 +210,5 @@ ${MOCK_CONTEXT}
     ok: true,
     requestId,
     sources: extractMockSources(question),
-    suggestedFollowUps,
   };
 };

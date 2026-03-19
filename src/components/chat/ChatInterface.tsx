@@ -102,12 +102,7 @@ export function ChatInterface({
             </div>
           ) : (
             deferredMessages.map((message) => (
-              <MessageBubble
-                isBusy={isSubmitting}
-                key={message.id}
-                message={message}
-                onFollowUpClick={submitQuestion}
-              />
+              <MessageBubble key={message.id} message={message} />
             ))
           )}
         </div>

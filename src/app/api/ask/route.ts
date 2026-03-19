@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getRequestUser } from "@/lib/auth";
+import { getAssistantProfileResponse } from "@/lib/assistant-profile";
 import { appConfig } from "@/lib/config";
 import { askVertexGroundedQuestion } from "@/lib/genai";
 import { getMockAnswer } from "@/lib/mock/mockService";
@@ -52,6 +53,16 @@ export async function POST(request: Request) {
   }
 
   try {
+    const assistantProfileResponse = getAssistantProfileResponse(
+      question,
+      user,
+      requestId,
+    );
+
+    if (assistantProfileResponse) {
+      return NextResponse.json(assistantProfileResponse);
+    }
+
     if (appConfig.mockMode) {
       const mockResponse = await getMockAnswer(question, requestId);
       return NextResponse.json(mockResponse);

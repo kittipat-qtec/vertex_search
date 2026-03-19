@@ -2,10 +2,12 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 
+import type { SubmitQuestionResult } from "@/hooks/useChat";
+
 interface QuestionInputProps {
   isLoading: boolean;
   suggestions: readonly string[];
-  onSubmit: (question: string) => Promise<boolean>;
+  onSubmit: (question: string) => Promise<SubmitQuestionResult>;
 }
 
 export function QuestionInput({
@@ -17,6 +19,21 @@ export function QuestionInput({
   const hintId = useId();
   const textareaId = useId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingDraftRef = useRef<string | null>(null);
+  const previousLoadingRef = useRef(isLoading);
+
+  const focusTextarea = () => {
+    const textarea = textareaRef.current;
+
+    if (!textarea) {
+      return;
+    }
+
+    textarea.focus({ preventScroll: true });
+
+    const cursorPosition = textarea.value.length;
+    textarea.setSelectionRange(cursorPosition, cursorPosition);
+  };
 
   const adjustHeight = () => {
     const textarea = textareaRef.current;
@@ -33,6 +50,18 @@ export function QuestionInput({
     adjustHeight();
   }, [question]);
 
+  useEffect(() => {
+    focusTextarea();
+  }, []);
+
+  useEffect(() => {
+    if (previousLoadingRef.current && !isLoading) {
+      focusTextarea();
+    }
+
+    previousLoadingRef.current = isLoading;
+  }, [isLoading]);
+
   const submit = async (value: string) => {
     const trimmed = value.trim();
 
@@ -40,17 +69,20 @@ export function QuestionInput({
       return;
     }
 
-    const success = await onSubmit(trimmed);
-
-    if (!success) {
-      return;
-    }
-
+    pendingDraftRef.current = trimmed;
     setQuestion("");
 
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
+
+    const result = await onSubmit(trimmed);
+
+    if (result === "error" && pendingDraftRef.current) {
+      setQuestion(pendingDraftRef.current);
+    }
+
+    pendingDraftRef.current = null;
   };
 
   const canSubmit = !isLoading && question.trim().length > 0;

@@ -10,6 +10,8 @@ import {
 
 import type { AskResponse, ChatMessage } from "@/lib/types";
 
+export type SubmitQuestionResult = "success" | "error" | "aborted";
+
 const pendingMessage = (id: string): ChatMessage => ({
   id,
   role: "assistant",
@@ -122,10 +124,12 @@ export const useChat = (options?: {
     };
   }, []);
 
-  const submitQuestion = async (question: string) => {
+  const submitQuestion = async (
+    question: string,
+  ): Promise<SubmitQuestionResult> => {
     const trimmedQuestion = question.trim();
     if (!trimmedQuestion || submissionLockRef.current) {
-      return false;
+      return "aborted";
     }
 
     const userMessageId = crypto.randomUUID();
@@ -180,7 +184,6 @@ export const useChat = (options?: {
                   text: payload.answer,
                   sources: payload.sources,
                   latencyMs: payload.latencyMs,
-                  suggestedFollowUps: payload.suggestedFollowUps,
                 }
               : message,
           ),
@@ -188,13 +191,13 @@ export const useChat = (options?: {
       });
 
       setLastLatencyMs(payload.latencyMs ?? null);
-      return true;
+      return "success";
     } catch (caughtError) {
       if (
         caughtError instanceof DOMException &&
         caughtError.name === "AbortError"
       ) {
-        return false;
+        return "aborted";
       }
 
       const message =
@@ -217,7 +220,7 @@ export const useChat = (options?: {
         );
       });
 
-      return false;
+      return "error";
     } finally {
       if (requestAbortControllerRef.current === abortController) {
         requestAbortControllerRef.current = null;

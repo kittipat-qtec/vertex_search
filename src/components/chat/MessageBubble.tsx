@@ -9,7 +9,7 @@ import type { ChatMessage } from "@/lib/types";
 const MarkdownRenderer = dynamic(
   () => import("@/components/chat/MarkdownRenderer"),
   {
-    loading: () => <p className="message-bubble__text">กำลังแสดงคำตอบ…</p>,
+    loading: () => <p className="message-bubble__text">กำลังแสดงคำตอบ...</p>,
   },
 );
 
@@ -30,15 +30,7 @@ function SkeletonBubble() {
   );
 }
 
-function MessageBubbleComponent({
-  isBusy = false,
-  message,
-  onFollowUpClick,
-}: {
-  isBusy?: boolean;
-  message: ChatMessage;
-  onFollowUpClick?: (question: string) => Promise<boolean> | void;
-}) {
+function MessageBubbleComponent({ message }: { message: ChatMessage }) {
   const isAssistant = message.role === "assistant";
 
   if (message.pending) {
@@ -87,28 +79,6 @@ function MessageBubbleComponent({
           </div>
         ) : null}
       </div>
-
-      {isAssistant && !message.error && message.suggestedFollowUps?.length ? (
-        <div className="follow-up-list">
-          <span className="follow-up-label">คำถามที่เกี่ยวข้อง</span>
-          <div className="follow-up-chips">
-            {message.suggestedFollowUps.map((q) => (
-              <button
-                key={q}
-                aria-label={`ถามต่อ: ${q}`}
-                className="follow-up-chip"
-                disabled={isBusy}
-                onClick={() => {
-                  void onFollowUpClick?.(q);
-                }}
-                type="button"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </article>
   );
 }
