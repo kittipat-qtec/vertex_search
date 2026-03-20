@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import type { AskResponse, ChatMessage } from "@/lib/types";
+import { generateId } from "@/lib/generateId";
 
 export type SubmitQuestionResult = "success" | "error" | "aborted";
 
@@ -132,8 +133,8 @@ export const useChat = (options?: {
       return "aborted";
     }
 
-    const userMessageId = crypto.randomUUID();
-    const assistantMessageId = crypto.randomUUID();
+    const userMessageId = generateId();
+    const assistantMessageId = generateId();
     const abortController = new AbortController();
 
     submissionLockRef.current = true;
@@ -164,44 +165,118 @@ export const useChat = (options?: {
         text: m.text,
       }));
 
-      const response = await fetch("/api/ask", {
+      const response = await fetch("/api/ask/stream", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question: trimmedQuestion,
-          history,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: trimmedQuestion, history }),
         signal: abortController.signal,
       });
 
-      const payload = (await response.json()) as AskResponse & {
-        error?: string;
-      };
-
-      if (!response.ok || !payload.ok) {
-        throw new Error(payload.error || "ระบบไม่สามารถตอบคำถามได้");
+      if (!response.ok || !response.body) {
+        const err = await response.json().catch(() => ({}) ) as { error?: string };
+        throw new Error(err.error || "ระบบไม่สามารถตอบคำถามได้");
       }
 
+      // ── SSE stream consumer ──────────────────────────────
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamedText = "";
+      let streamedSources: import("@/lib/types").Source[] = [];
+      let streamedSuggested: string[] = [];
+      let latencyMs: number | undefined;
+      let receivedDone = false;
+
+      const parseLine = (line: string) => {
+        if (!line.startsWith("data:")) return null;
+        try {
+          return JSON.parse(line.slice(5).trim()) as Record<string, unknown>;
+        } catch { return null; }
+      };
+
+      const processBlock = (block: string) => {
+        const lines = block.split("\n");
+        const eventLine = lines.find((l) => l.startsWith("event:"));
+        const dataLine = lines.find((l) => l.startsWith("data:"));
+        if (!eventLine || !dataLine) return false; // false = continue
+
+        const event = eventLine.slice(6).trim();
+        const data = parseLine(dataLine);
+        if (!data) return false;
+
+        if (event === "token") {
+          streamedText += (data.text as string) ?? "";
+          startTransition(() => {
+            setMessages((cur) =>
+              cur.map((m) =>
+                m.id === assistantMessageId
+                  ? { ...m, text: streamedText, pending: false }
+                  : m,
+              ),
+            );
+          });
+        } else if (event === "source") {
+          streamedSources = [...streamedSources, data as unknown as import("@/lib/types").Source];
+          startTransition(() => {
+            setMessages((cur) =>
+              cur.map((m) =>
+                m.id === assistantMessageId
+                  ? { ...m, sources: streamedSources }
+                  : m,
+              ),
+            );
+          });
+        } else if (event === "suggested") {
+          streamedSuggested = (data.questions as string[]) ?? [];
+        } else if (event === "done") {
+          latencyMs = (data.latencyMs as number) ?? undefined;
+          receivedDone = true;
+          return true; // true = stop
+        } else if (event === "error") {
+          throw new Error((data.message as string) ?? "ระบบไม่สามารถตอบคำถามได้");
+        }
+        return false;
+      };
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+
+        // Flush remaining buffer before exiting (includes partial last event)
+        const chunk = done
+          ? decoder.decode()          // flush TextDecoder internal state
+          : decoder.decode(value, { stream: true });
+        buffer += chunk;
+
+        const parts = buffer.split("\n\n");
+        // Only keep tail as remainder if stream is still open
+        buffer = done ? "" : (parts.pop() ?? "");
+
+        for (const block of parts) {
+          if (processBlock(block)) break outer;
+        }
+
+        if (done) break;
+      }
+
+      // ── Always finalize message (even if 'done' event was missed) ──
       startTransition(() => {
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantMessageId
+        setMessages((cur) =>
+          cur.map((m) =>
+            m.id === assistantMessageId
               ? {
-                  id: assistantMessageId,
-                  role: "assistant",
-                  text: payload.answer,
-                  sources: payload.sources,
-                  latencyMs: payload.latencyMs,
-                  suggestedQuestions: payload.suggestedQuestions,
+                  ...m,
+                  text: streamedText || (receivedDone ? m.text : m.text),
+                  sources: streamedSources,
+                  suggestedQuestions: streamedSuggested,
+                  latencyMs,
+                  pending: false,
                 }
-              : message,
+              : m,
           ),
         );
       });
 
-      setLastLatencyMs(payload.latencyMs ?? null);
+      setLastLatencyMs(latencyMs ?? null);
       return "success";
     } catch (caughtError) {
       if (

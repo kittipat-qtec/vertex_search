@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { ChatMessage } from "@/lib/types";
+import { generateId } from "@/lib/generateId";
 
 export interface ChatSession {
   id: string;
@@ -22,7 +23,7 @@ const STORAGE_KEY = "qtec_chat_history";
 const STORAGE_VERSION = 1;
 
 const createDraftSession = (): ChatSession => ({
-  id: crypto.randomUUID(),
+  id: generateId(),
   messages: [],
   title: DEFAULT_SESSION_TITLE,
   updatedAt: Date.now(),
