@@ -46,8 +46,8 @@ temp/
 .cache/
 implementation_plan.md
 
-# Internal source documents kept outside Git
-docs/*.pdf
+# Internal docs — pricing references and planning documents
+docs/
 
 # Editor / OS files
 .DS_Store

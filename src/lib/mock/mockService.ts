@@ -116,7 +116,7 @@ export const getMockAnswer = async (
     grounded: false,
     model: `${appConfig.modelName}-mock`,
     requestId,
-    latencyMs: Date.now() - startedAt,
+    latencyMs: Math.max(1, Date.now() - startedAt),
     mock: true,
   };
 };
