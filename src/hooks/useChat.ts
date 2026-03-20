@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 
-import type { AskResponse, ChatMessage } from "@/lib/types";
+import type { ChatMessage } from "@/lib/types";
 import { generateId } from "@/lib/generateId";
 
 export type SubmitQuestionResult = "success" | "error" | "aborted";

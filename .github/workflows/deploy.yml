@@ -1,42 +1,58 @@
-name: Deploy to Cloud Run
+name: CI — Lint, Type-check & Test
 
 on:
   push:
-    branches:
-      - main      # → Production
-      - develop   # → Staging
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: asia-southeast1
-  IMAGE: gcr.io/${{ secrets.GCP_PROJECT_ID }}/qtec-brain
+  NODE_VERSION: "22"
 
 jobs:
-  test:
+  ci:
     name: Lint & Test
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-      - name: Setup Node.js
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run linter
+      - name: Run ESLint
         run: npm run lint
 
       - name: Run tests
         run: npm test
 
-  build-and-deploy:
-    name: Build & Deploy
+      - name: Type-check
+        run: npx tsc --noEmit
+
+# ────────────────────────────────────────────────────────────────
+# Deploy to Cloud Run (ปัจจุบันปิดไว้ — ใช้ Docker บน VLAN แทน)
+# เปิดใช้เมื่อต้องการ deploy ขึ้น Google Cloud Run จริง โดย:
+#   1. ตั้งค่า GitHub Secrets:
+#      - GCP_PROJECT_ID
+#      - GCP_WORKLOAD_IDENTITY_PROVIDER  (หรือ GCP_SA_KEY สำหรับ JSON key)
+#      - GCP_SERVICE_ACCOUNT
+#      - DATA_STORE_ID
+#   2. เปลี่ยน workflow_dispatch → push เพื่อ deploy อัตโนมัติ
+# ────────────────────────────────────────────────────────────────
+  deploy:
+    name: Build & Deploy to Cloud Run
     runs-on: ubuntu-latest
-    needs: test
+    needs: ci
+    if: false  # ← ปิดไว้ก่อน เปิดเมื่อพร้อม deploy จริง
     permissions:
       contents: read
       id-token: write
@@ -53,49 +69,18 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker --quiet
-
-      - name: Determine tag
-        id: tag
+      - name: Build and push Docker image
         run: |
-          if [ "${{ github.ref_name }}" == "main" ]; then
-            echo "TAG=production" >> $GITHUB_OUTPUT
-            echo "SERVICE=qtec-brain" >> $GITHUB_OUTPUT
-            echo "ENV_SUFFIX=" >> $GITHUB_OUTPUT
-          else
-            echo "TAG=staging" >> $GITHUB_OUTPUT
-            echo "SERVICE=qtec-brain-staging" >> $GITHUB_OUTPUT
-            echo "ENV_SUFFIX=-staging" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build Docker image
-        run: |
-          docker build \
-            --tag $IMAGE:${{ steps.tag.outputs.TAG }} \
-            --tag $IMAGE:${{ github.sha }} \
-            .
-
-      - name: Push Docker image
-        run: |
-          docker push $IMAGE:${{ steps.tag.outputs.TAG }}
-          docker push $IMAGE:${{ github.sha }}
+          gcloud auth configure-docker --quiet
+          docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/qtec-brain:${{ github.sha }} .
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/qtec-brain:${{ github.sha }}
 
       - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy ${{ steps.tag.outputs.SERVICE }} \
-            --image=$IMAGE:${{ github.sha }} \
-            --region=$REGION \
-            --platform=managed \
-            --allow-unauthenticated \
-            --memory=1Gi \
-            --cpu=2 \
-            --max-instances=10 \
-            --min-instances=1 \
-            --set-env-vars="MOCK_MODE=false,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,DATA_STORE_ID=${{ secrets.DATA_STORE_ID }}" \
-            --set-secrets="GOOGLE_CHAT_WEBHOOK_URL=google-chat-webhook:latest" \
-            --project=$PROJECT_ID
-
-      - name: Notify deployment
-        run: |
-          echo "✅ Deployed ${{ steps.tag.outputs.SERVICE }} @ ${{ github.sha }}"
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: qtec-brain
+          image: gcr.io/${{ secrets.GCP_PROJECT_ID }}/qtec-brain:${{ github.sha }}
+          region: asia-southeast1
+          env_vars: |
+            MOCK_MODE=false
+            GOOGLE_CLOUD_PROJECT=${{ secrets.GCP_PROJECT_ID }}
