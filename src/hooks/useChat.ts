@@ -182,10 +182,36 @@ export const useChat = (options?: {
       const decoder = new TextDecoder();
       let buffer = "";
       let streamedText = "";
+      let tokenQueue = "";           // batched token chars not yet rendered
+      let animFrameId: number | null = null;
       let streamedSources: import("@/lib/types").Source[] = [];
       let streamedSuggested: string[] = [];
       let latencyMs: number | undefined;
       let receivedDone = false;
+
+      // Flush buffered tokens to React state (called by rAF)
+      const flushTokens = () => {
+        animFrameId = null;
+        if (!tokenQueue) return;
+        streamedText += tokenQueue;
+        tokenQueue = "";
+        const snap = streamedText;
+        startTransition(() => {
+          setMessages((cur) =>
+            cur.map((m) =>
+              m.id === assistantMessageId
+                ? { ...m, text: snap, pending: false }
+                : m,
+            ),
+          );
+        });
+      };
+
+      // Drain queue immediately (used before finalizing)
+      const drainTokens = () => {
+        if (animFrameId !== null) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+        flushTokens();
+      };
 
       const parseLine = (line: string) => {
         if (!line.startsWith("data:")) return null;
@@ -205,16 +231,10 @@ export const useChat = (options?: {
         if (!data) return false;
 
         if (event === "token") {
-          streamedText += (data.text as string) ?? "";
-          startTransition(() => {
-            setMessages((cur) =>
-              cur.map((m) =>
-                m.id === assistantMessageId
-                  ? { ...m, text: streamedText, pending: false }
-                  : m,
-              ),
-            );
-          });
+          tokenQueue += (data.text as string) ?? "";
+          // Schedule a batched flush — replaces any pending frame
+          if (animFrameId !== null) cancelAnimationFrame(animFrameId);
+          animFrameId = requestAnimationFrame(flushTokens);
         } else if (event === "source") {
           streamedSources = [...streamedSources, data as unknown as import("@/lib/types").Source];
           startTransition(() => {
@@ -257,6 +277,9 @@ export const useChat = (options?: {
 
         if (done) break;
       }
+
+      // Drain any tokens still waiting in the rAF queue
+      drainTokens();
 
       // ── Always finalize message (even if 'done' event was missed) ──
       startTransition(() => {

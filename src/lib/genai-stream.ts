@@ -39,7 +39,7 @@ const SAFETY_SETTINGS = [
 
 const BASE_STREAM_CONFIG: Partial<GenerateContentConfig> = {
   temperature: 0.2,
-  maxOutputTokens: 2048,
+  maxOutputTokens: 4096,   // Thai text uses ~2-3x more tokens than English
   safetySettings: SAFETY_SETTINGS,
 };
 
@@ -149,7 +149,7 @@ export const streamMockAnswer = async (
       const streamResult = getGenAIClient().models.generateContentStream({
         model: appConfig.modelName,
         contents: prompt,
-        config: { temperature: 0.7, maxOutputTokens: 512 },
+        config: { temperature: 0.7, maxOutputTokens: 1024 },
       });
 
       let fullAnswer = "";
@@ -210,7 +210,7 @@ export const streamVertexGroundedQuestion = async (
   const config: GenerateContentConfig = {
     ...BASE_STREAM_CONFIG,
     systemInstruction: RAG_SYSTEM_INSTRUCTION,
-    maxOutputTokens: 1024,
+    maxOutputTokens: 4096,   // inherit from BASE_STREAM_CONFIG (overrides it explicitly)
     ...(datastore
       ? {
           tools: [
