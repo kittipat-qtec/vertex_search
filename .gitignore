@@ -39,6 +39,8 @@ lerna-debug.log*
 *.cer
 *.der
 service-account*.json
+sa-key.json
+*-sa-*.json
 
 # Local app data
 tmp/
