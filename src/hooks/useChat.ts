@@ -183,15 +183,15 @@ export const useChat = (options?: {
       let buffer = "";
       let streamedText = "";
       let tokenQueue = "";           // batched token chars not yet rendered
-      let animFrameId: number | null = null;
+      let timerHandle: ReturnType<typeof setTimeout> | null = null;
       let streamedSources: import("@/lib/types").Source[] = [];
       let streamedSuggested: string[] = [];
       let latencyMs: number | undefined;
       let receivedDone = false;
 
-      // Flush buffered tokens to React state (called by rAF)
+      // Flush buffered tokens to React state (called by timer)
       const flushTokens = () => {
-        animFrameId = null;
+        timerHandle = null;
         if (!tokenQueue) return;
         streamedText += tokenQueue;
         tokenQueue = "";
@@ -209,7 +209,7 @@ export const useChat = (options?: {
 
       // Drain queue immediately (used before finalizing)
       const drainTokens = () => {
-        if (animFrameId !== null) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+        if (timerHandle !== null) { clearTimeout(timerHandle); timerHandle = null; }
         flushTokens();
       };
 
@@ -232,9 +232,9 @@ export const useChat = (options?: {
 
         if (event === "token") {
           tokenQueue += (data.text as string) ?? "";
-          // Schedule a batched flush — replaces any pending frame
-          if (animFrameId !== null) cancelAnimationFrame(animFrameId);
-          animFrameId = requestAnimationFrame(flushTokens);
+          // Batch updates: flush at most once per ~16ms
+          if (timerHandle !== null) clearTimeout(timerHandle);
+          timerHandle = setTimeout(flushTokens, 16);
         } else if (event === "source") {
           streamedSources = [...streamedSources, data as unknown as import("@/lib/types").Source];
           startTransition(() => {

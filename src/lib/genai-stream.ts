@@ -131,9 +131,12 @@ export const streamMockAnswer = async (
       emit("token", { text: word });
       await delay(18 + Math.random() * 22);
     }
-    const suggested = await generateSuggested(question, match.answer);
-    if (suggested.length) emit("suggested", { questions: suggested });
+    // Emit done FIRST so browser closes stream promptly
     emit("done", { requestId, latencyMs: Date.now() - startedAt, model: appConfig.modelName });
+    // Suggested questions are a best-effort bonus — run after done
+    generateSuggested(question, match.answer).then((suggested) => {
+      if (suggested.length) emit("suggested", { questions: suggested });
+    }).catch(() => {/* ignore */});
     return;
   }
 
@@ -160,10 +163,11 @@ export const streamMockAnswer = async (
           emit("token", { text });
         }
       }
-
-      const suggested = await generateSuggested(question, fullAnswer);
-      if (suggested.length) emit("suggested", { questions: suggested });
+      // Emit done immediately; suggested runs after
       emit("done", { requestId, latencyMs: Date.now() - startedAt, model: appConfig.modelName });
+      generateSuggested(question, fullAnswer).then((suggested) => {
+        if (suggested.length) emit("suggested", { questions: suggested });
+      }).catch(() => {/* ignore */});
       return;
     } catch {
       // Fall through to default
@@ -275,12 +279,13 @@ export const streamVertexGroundedQuestion = async (
     for (const src of extractMockSources(question)) emit("source", src);
   }
 
-  const suggested = await generateSuggested(question, fullAnswer);
-  if (suggested.length) emit("suggested", { questions: suggested });
-
+  // Emit done FIRST; suggested questions are a best-effort bonus
   emit("done", {
     requestId,
     latencyMs: Date.now() - startedAt,
     model: appConfig.modelName,
   });
+  generateSuggested(question, fullAnswer).then((suggested) => {
+    if (suggested.length) emit("suggested", { questions: suggested });
+  }).catch(() => {/* ignore */});
 };
